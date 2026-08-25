@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     postgres_db: str = "reconcile"
     backend_port: int = 8000
     frontend_port: int = 3000
+    enable_ocr_fallback: bool = False
 
     @property
     def frontend_origin(self) -> str:
