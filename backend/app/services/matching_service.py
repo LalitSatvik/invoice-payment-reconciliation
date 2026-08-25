@@ -255,7 +255,23 @@ def accept_match(db: Session, match_id: UUID) -> Match:
     return match
 
 
-def reject_match(db: Session, match_id: UUID) -> Match:
+def reject_match(db: Session, match_id: UUID) -> Dict[str, Any]:
+    """Reject a suggested match and reopen both sides for future matching.
+
+    The ``Match`` row is deleted rather than kept around with
+    ``match_status="rejected"``: ``invoice_id``/``payment_id`` each carry a
+    table-wide unique constraint (not scoped to non-rejected rows), so a
+    rejected row left in place would permanently block that exact invoice or
+    payment from ever appearing in a new ``Match`` row again -- including the
+    very next ``/matching/run``, which (nothing else about the data having
+    changed) immediately re-proposes the same pairing and collides with the
+    stale row on both columns at once. The durable record of "this pairing
+    was proposed and rejected" is the ``ExceptionRecord`` created below, not
+    the ``Match`` row, so deleting it costs no audit-trail information -- it
+    does mean ``match_status="rejected"`` is no longer a state any row is
+    ever found in; ``GET /matches?status=rejected`` will simply always come
+    back empty. See the ``rejected`` value's note on ``match_status_type``.
+    """
     match = db.get(Match, match_id)
     if match is None:
         raise MatchNotFoundError(f"match {match_id} not found")
@@ -263,9 +279,6 @@ def reject_match(db: Session, match_id: UUID) -> Match:
         raise MatchAlreadyReviewedError(
             f"match {match_id} has already been reviewed (match_status={match.match_status!r})"
         )
-
-    match.match_status = "rejected"
-    match.reviewed_at = _utcnow()
 
     invoice = db.get(Invoice, match.invoice_id)
     payment = db.get(Payment, match.payment_id)
@@ -282,9 +295,29 @@ def reject_match(db: Session, match_id: UUID) -> Match:
         )
     )
 
+    # Build the response payload before deleting -- SQLAlchemy expires a
+    # deleted instance's attributes on flush/commit, and the caller still
+    # needs to render this match's final state (id, rejected timestamp, etc.)
+    # in the response. A plain dict is returned rather than the (now
+    # deleted) ORM instance; ``MatchOut`` validates it the same way either
+    # form arrives.
+    response = {
+        "id": match.id,
+        "invoice_id": match.invoice_id,
+        "payment_id": match.payment_id,
+        "confidence_score": match.confidence_score,
+        "amount_score": match.amount_score,
+        "date_score": match.date_score,
+        "reference_score": match.reference_score,
+        "match_status": "rejected",
+        "suggested_at": match.suggested_at,
+        "reviewed_at": _utcnow(),
+        "reviewer_note": match.reviewer_note,
+    }
+
+    db.delete(match)
     db.commit()
-    db.refresh(match)
-    return match
+    return response
 
 
 def list_exceptions(

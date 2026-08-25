@@ -10,6 +10,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 match_status_type = Enum("suggested", "accepted", "rejected", name="match_status")
+# Note (Task 7): rejecting a match deletes its ``Match`` row rather than
+# setting match_status="rejected" and leaving it -- the row's invoice_id/
+# payment_id unique constraints would otherwise permanently block that
+# invoice or payment from ever being matched again, including on the very
+# next matching run. The audit trail for a rejection lives on an
+# ExceptionRecord(reason="rejected_by_reviewer") instead. The "rejected"
+# enum value is kept (no migration needed to remove it) but no row is
+# ever expected to be found in that state; see
+# app.services.matching_service.reject_match.
 
 
 class Match(Base):

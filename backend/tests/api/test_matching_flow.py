@@ -387,3 +387,135 @@ def test_candidate_claimed_elsewhere_reason_round_trips_through_the_enum(
         .one()
     )
     assert stored.reason == "candidate_claimed_elsewhere"
+
+
+def test_rejected_pairing_can_be_rematched_on_a_later_run(client, db_session):
+    """A rejected match must not permanently block its invoice/payment from
+    ever being matched again. Reject reopens both sides to ``unmatched``, so
+    the deterministic engine immediately re-proposes the very same pairing on
+    the next ``/matching/run`` -- nothing else in the seed data changed. That
+    re-proposal has to succeed (not collide with the stale rejected ``Match``
+    row's unique constraints on ``invoice_id``/``payment_id``), or the
+    brief's "eligible for a future /matching/run" contract for rejected
+    records is broken.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="rematch.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="REMATCH-1",
+        vendor_name="Rematch Co",
+        invoice_date=date(2026, 6, 1),
+        amount=Decimal("450.00"),
+    )
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 6, 1),
+        amount=Decimal("450.00"),
+        reference="REMATCH-1 payment",
+        counterparty="Rematch Co",
+        raw_row={"amount": "450.00"},
+    )
+    db_session.add_all([invoice, payment])
+    db_session.commit()
+
+    first_run = client.post("/api/v1/matching/run", json={})
+    assert first_run.status_code == 200
+    assert first_run.json() == {"matches_created": 1, "exceptions_created": 0}
+
+    matches = client.get("/api/v1/matches", params={"status": "suggested"}).json()["items"]
+    match = _match_for(matches, invoice.id)
+
+    reject_response = client.post(f"/api/v1/matches/{match['id']}/reject")
+    assert reject_response.status_code == 200
+
+    db_session.refresh(invoice)
+    db_session.refresh(payment)
+    assert invoice.status == "unmatched"
+    assert payment.status == "unmatched"
+
+    # The critical assertion: a second run over the same (now reopened)
+    # invoice/payment must succeed, not 500 on a stale unique constraint.
+    second_run = client.post("/api/v1/matching/run", json={})
+    assert second_run.status_code == 200
+    assert second_run.json() == {"matches_created": 1, "exceptions_created": 0}
+
+    new_matches = client.get(
+        "/api/v1/matches", params={"status": "suggested"}
+    ).json()["items"]
+    new_match = _match_for(new_matches, invoice.id)
+    assert new_match["payment_id"] == str(payment.id)
+    assert new_match["id"] != match["id"]
+
+    # The rejection is still on record as an exception (the audit trail),
+    # even though the Match row it pointed at is gone.
+    rejection_exceptions = (
+        db_session.query(ExceptionRecord)
+        .filter(ExceptionRecord.reason == "rejected_by_reviewer")
+        .filter(ExceptionRecord.invoice_id == invoice.id)
+        .all()
+    )
+    assert len(rejection_exceptions) == 1
+
+
+def test_resolve_exception_allows_manual_link_for_previously_rejected_pairing(
+    client, db_session
+):
+    """A previously-rejected invoice/payment pair must still be linkable
+    through manual exception resolution -- rejection should not leave behind
+    a stale Match row that makes the pre-check ("is this id already linked to
+    a match?") report a false conflict.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="resolve.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="RESOLVE-1",
+        vendor_name="Resolve Co",
+        invoice_date=date(2026, 7, 1),
+        amount=Decimal("640.00"),
+    )
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 7, 1),
+        amount=Decimal("640.00"),
+        reference="RESOLVE-1 payment",
+        counterparty="Resolve Co",
+        raw_row={"amount": "640.00"},
+    )
+    db_session.add_all([invoice, payment])
+    db_session.commit()
+
+    run_response = client.post("/api/v1/matching/run", json={})
+    assert run_response.status_code == 200
+    assert run_response.json()["matches_created"] == 1
+
+    matches = client.get("/api/v1/matches", params={"status": "suggested"}).json()["items"]
+    match = _match_for(matches, invoice.id)
+    client.post(f"/api/v1/matches/{match['id']}/reject")
+
+    exceptions = client.get(
+        "/api/v1/exceptions", params={"reason": "rejected_by_reviewer"}
+    ).json()["items"]
+    exc = _exception_for(exceptions, invoice_id=invoice.id)
+
+    resolve_response = client.post(
+        f"/api/v1/exceptions/{exc['id']}/resolve",
+        json={
+            "link_invoice_id": str(invoice.id),
+            "link_payment_id": str(payment.id),
+            "resolution_note": "manually confirmed after review",
+        },
+    )
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["status"] == "resolved"
+
+    db_session.refresh(invoice)
+    db_session.refresh(payment)
+    assert invoice.status == "matched"
+    assert payment.status == "matched"
