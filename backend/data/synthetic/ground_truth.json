@@ -1,0 +1,675 @@
+{
+  "seed": 42,
+  "generated_by": "app.synthetic.scenarios",
+  "files": {
+    "invoices_csv": "invoices.csv",
+    "payments_csv": "bank_statement.csv"
+  },
+  "assumptions": {
+    "amount_tolerance": {
+      "flat": "1.00",
+      "percent": "0.005",
+      "rule": "tolerance = max(flat, percent * invoice_amount), percent portion rounded to cents (ROUND_HALF_UP); a pair matches on amount iff abs(payment.amount - invoice.amount) <= tolerance"
+    },
+    "date_window": {
+      "days": 5,
+      "anchor": "invoice.due_date",
+      "rule": "a pair matches on date iff abs((payment.payment_date - invoice.due_date).days) <= days"
+    },
+    "payment_row_index": "0-based index into payments_csv's data rows (excluding the header row); stable because row order is fixed at generation time and never shuffled."
+  },
+  "scenario_types_required": [
+    "clean_match",
+    "amount_tolerance_edge_match",
+    "date_window_edge_match",
+    "fuzzy_reference_match",
+    "orphan_invoice",
+    "orphan_payment",
+    "ambiguous_tie",
+    "looks_like_partial_payment",
+    "duplicate_looking_payment"
+  ],
+  "counts": {
+    "invoice_count": 31,
+    "payment_count": 30,
+    "scenario_count": 32
+  },
+  "scenarios": [
+    {
+      "scenario_id": "clean_match_1",
+      "scenario_type": "clean_match",
+      "description": "Exact match on amount, date, and reference.",
+      "invoice_numbers": [
+        "INV-1001"
+      ],
+      "payment_row_indices": [
+        0
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1001",
+          "payment_row_index": 0
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Baseline clean_match case: amount, payment date (== due date), and reference text all agree exactly."
+    },
+    {
+      "scenario_id": "amount_tolerance_edge_match_flat",
+      "scenario_type": "amount_tolerance_edge_match",
+      "description": "Payment is exactly $1.00 below invoice amount; flat tolerance binds (0.5% of $80 is only $0.40).",
+      "invoice_numbers": [
+        "INV-1101"
+      ],
+      "payment_row_indices": [
+        1
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1101",
+          "payment_row_index": 1
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Tolerance = max($1.00, 0.5% * $80.00) = $1.00. Diff is exactly $1.00 -- at the boundary, should match."
+    },
+    {
+      "scenario_id": "amount_tolerance_exceeded_flat",
+      "scenario_type": "amount_tolerance_exceeded",
+      "description": "Payment is $1.01 below invoice amount -- one cent past the flat tolerance boundary.",
+      "invoice_numbers": [
+        "INV-1102"
+      ],
+      "payment_row_indices": [
+        2
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "amount_mismatch_only",
+      "notes": "Tolerance = $1.00; diff is $1.01, one cent past it. Must NOT match. Date and reference otherwise agree exactly, so 'amount_mismatch_only' is the advisory expected exception reason (Task 5 owns the final exception-classification logic)."
+    },
+    {
+      "scenario_id": "amount_tolerance_edge_match_pct",
+      "scenario_type": "amount_tolerance_edge_match",
+      "description": "Payment is exactly $50.00 below invoice amount; percentage tolerance binds (0.5% of $10,000 is $50, more than the $1 flat).",
+      "invoice_numbers": [
+        "INV-1151"
+      ],
+      "payment_row_indices": [
+        3
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1151",
+          "payment_row_index": 3
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Tolerance = max($1.00, 0.5% * $10,000.00) = $50.00. Diff is exactly $50.00 -- at the boundary, should match."
+    },
+    {
+      "scenario_id": "amount_tolerance_exceeded_pct",
+      "scenario_type": "amount_tolerance_exceeded",
+      "description": "Payment is $50.01 below invoice amount -- one cent past the percentage tolerance boundary.",
+      "invoice_numbers": [
+        "INV-1152"
+      ],
+      "payment_row_indices": [
+        4
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "amount_mismatch_only",
+      "notes": "Tolerance = $50.00; diff is $50.01, one cent past it. Must NOT match."
+    },
+    {
+      "scenario_id": "date_window_edge_match",
+      "scenario_type": "date_window_edge_match",
+      "description": "Payment lands exactly 5 days after the invoice due date (the assumed default window boundary).",
+      "invoice_numbers": [
+        "INV-1301"
+      ],
+      "payment_row_indices": [
+        5
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1301",
+          "payment_row_index": 5
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Amount and reference exact; payment_date - due_date == 5 days, the boundary -- should match."
+    },
+    {
+      "scenario_id": "date_window_exceeded",
+      "scenario_type": "date_window_exceeded",
+      "description": "Payment lands 6 days after the invoice due date -- one day past the window.",
+      "invoice_numbers": [
+        "INV-1302"
+      ],
+      "payment_row_indices": [
+        6
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "below_threshold",
+      "notes": "Amount and reference exact; payment_date - due_date == 6 days, one day past the 5-day window. Must NOT match. 'below_threshold' is an advisory expected exception reason."
+    },
+    {
+      "scenario_id": "fuzzy_reference_match_typo",
+      "scenario_type": "fuzzy_reference_match",
+      "description": "Payment memo references a typo'd invoice number (digits transposed: 1410 instead of 1401).",
+      "invoice_numbers": [
+        "INV-1401"
+      ],
+      "payment_row_indices": [
+        7
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1401",
+          "payment_row_index": 7
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Amount and date exact; reference is a near-miss fuzzy match (transposed digits) plus an exact vendor name -- should still match."
+    },
+    {
+      "scenario_id": "fuzzy_reference_match_reordered",
+      "scenario_type": "fuzzy_reference_match",
+      "description": "Payment memo contains the vendor name with its words reordered and no invoice number.",
+      "invoice_numbers": [
+        "INV-1411"
+      ],
+      "payment_row_indices": [
+        8
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1411",
+          "payment_row_index": 8
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Amount and date exact; reference text is a token-reordered variant of the vendor name -- should still match via fuzzy token matching."
+    },
+    {
+      "scenario_id": "fuzzy_reference_match_abbreviated",
+      "scenario_type": "fuzzy_reference_match",
+      "description": "Payment references an abbreviated vendor name (IBM) instead of the full legal name.",
+      "invoice_numbers": [
+        "INV-1421"
+      ],
+      "payment_row_indices": [
+        9
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1421",
+          "payment_row_index": 9
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Amount and date exact; vendor is abbreviated to its common initialism and the invoice number has no hyphen -- should still match."
+    },
+    {
+      "scenario_id": "fuzzy_reference_match_no_reference_text",
+      "scenario_type": "fuzzy_reference_match",
+      "description": "Payment has an empty memo and a generic, non-identifying counterparty -- no usable reference text at all.",
+      "invoice_numbers": [
+        "INV-1431"
+      ],
+      "payment_row_indices": [
+        10
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1431",
+          "payment_row_index": 10
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Amount and date exact; reference/counterparty carry no identifying signal (expected reference_score ~= 0), so the match must be inferable from amount + date alone."
+    },
+    {
+      "scenario_id": "orphan_invoice_1",
+      "scenario_type": "orphan_invoice",
+      "description": "Invoice with no corresponding payment anywhere in the dataset.",
+      "invoice_numbers": [
+        "INV-1501"
+      ],
+      "payment_row_indices": [],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "True orphan invoice: never paid."
+    },
+    {
+      "scenario_id": "orphan_payment_1",
+      "scenario_type": "orphan_payment",
+      "description": "Bank transaction with no corresponding invoice (a refund).",
+      "invoice_numbers": [],
+      "payment_row_indices": [
+        11
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "True orphan payment: a refund/unrelated transaction that was never invoiced."
+    },
+    {
+      "scenario_id": "ambiguous_tie_1",
+      "scenario_type": "ambiguous_tie",
+      "description": "Two invoices with identical amount and due date; one payment with a generic reference fits either equally well.",
+      "invoice_numbers": [
+        "INV-1701",
+        "INV-1702"
+      ],
+      "payment_row_indices": [
+        12
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "ambiguous_multiple_candidates",
+      "notes": "INV-1701 and INV-1702 are identical on amount/date/vendor; the payment's reference does not favor either. Must not auto-match; expect an ambiguous-candidates exception listing both as candidates."
+    },
+    {
+      "scenario_id": "looks_like_partial_payment_half",
+      "scenario_type": "looks_like_partial_payment",
+      "description": "Payment amount is exactly half of the invoice amount; reference and date otherwise agree.",
+      "invoice_numbers": [
+        "INV-1801"
+      ],
+      "payment_row_indices": [
+        13
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "possible_split_payment",
+      "notes": "Despite an exact reference/date match, the amount is only half of the invoice and far outside tolerance. Must NOT auto-match as a full payment."
+    },
+    {
+      "scenario_id": "looks_like_partial_payment_sum",
+      "scenario_type": "looks_like_partial_payment",
+      "description": "Invoice amount equals the sum of two separate payments, neither of which individually matches it.",
+      "invoice_numbers": [
+        "INV-1851"
+      ],
+      "payment_row_indices": [
+        14,
+        15
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "possible_split_payment",
+      "notes": "$600 + $600 == $1,200, but neither payment individually is within tolerance of the invoice. Neither should auto-match."
+    },
+    {
+      "scenario_id": "duplicate_looking_payment_1",
+      "scenario_type": "duplicate_looking_payment",
+      "description": "Two payments with the same amount and the same day, but different references, correctly resolving to two distinct invoices.",
+      "invoice_numbers": [
+        "INV-1901",
+        "INV-1902"
+      ],
+      "payment_row_indices": [
+        16,
+        17
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-1901",
+          "payment_row_index": 16
+        },
+        {
+          "invoice_number": "INV-1902",
+          "payment_row_index": 17
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "The amount+date collision could look like a duplicate payment to a matcher that only looks at amount/date, but the references clearly disambiguate: both are legitimate, distinct clean-ish matches and both should match."
+    },
+    {
+      "scenario_id": "clean_match_bg_00",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Cedarwood Property Services.",
+      "invoice_numbers": [
+        "INV-5000"
+      ],
+      "payment_row_indices": [
+        18
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5000",
+          "payment_row_index": 18
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_01",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Amber Fields Distribution.",
+      "invoice_numbers": [
+        "INV-5001"
+      ],
+      "payment_row_indices": [
+        19
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5001",
+          "payment_row_index": 19
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_02",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Nova Terra Energy.",
+      "invoice_numbers": [
+        "INV-5002"
+      ],
+      "payment_row_indices": [
+        20
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5002",
+          "payment_row_index": 20
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_03",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Ironclad Fabrication.",
+      "invoice_numbers": [
+        "INV-5003"
+      ],
+      "payment_row_indices": [
+        21
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5003",
+          "payment_row_index": 21
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_04",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Pinecrest Logistics.",
+      "invoice_numbers": [
+        "INV-5004"
+      ],
+      "payment_row_indices": [
+        22
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5004",
+          "payment_row_index": 22
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_05",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Cobalt Ridge Consulting.",
+      "invoice_numbers": [
+        "INV-5005"
+      ],
+      "payment_row_indices": [
+        23
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5005",
+          "payment_row_index": 23
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_06",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Ironclad Fabrication.",
+      "invoice_numbers": [
+        "INV-5006"
+      ],
+      "payment_row_indices": [
+        24
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5006",
+          "payment_row_index": 24
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_07",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Nova Terra Energy.",
+      "invoice_numbers": [
+        "INV-5007"
+      ],
+      "payment_row_indices": [
+        25
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5007",
+          "payment_row_index": 25
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_08",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Cascade Valley Foods.",
+      "invoice_numbers": [
+        "INV-5008"
+      ],
+      "payment_row_indices": [
+        26
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5008",
+          "payment_row_index": 26
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "clean_match_bg_09",
+      "scenario_type": "clean_match",
+      "description": "Background clean match for Pinecrest Logistics.",
+      "invoice_numbers": [
+        "INV-5009"
+      ],
+      "payment_row_indices": [
+        27
+      ],
+      "expected_match": true,
+      "expected_pairs": [
+        {
+          "invoice_number": "INV-5009",
+          "payment_row_index": 27
+        }
+      ],
+      "expected_exception_reason": null,
+      "notes": "Randomly generated (seeded) filler clean_match for dataset bulk."
+    },
+    {
+      "scenario_id": "orphan_invoice_bg_00",
+      "scenario_type": "orphan_invoice",
+      "description": "Background orphan invoice for Nova Terra Energy.",
+      "invoice_numbers": [
+        "INV-5900"
+      ],
+      "payment_row_indices": [],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "Randomly generated (seeded) filler orphan invoice."
+    },
+    {
+      "scenario_id": "orphan_invoice_bg_01",
+      "scenario_type": "orphan_invoice",
+      "description": "Background orphan invoice for Silverline Manufacturing.",
+      "invoice_numbers": [
+        "INV-5901"
+      ],
+      "payment_row_indices": [],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "Randomly generated (seeded) filler orphan invoice."
+    },
+    {
+      "scenario_id": "orphan_invoice_bg_02",
+      "scenario_type": "orphan_invoice",
+      "description": "Background orphan invoice for Vantage Point Security.",
+      "invoice_numbers": [
+        "INV-5902"
+      ],
+      "payment_row_indices": [],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "Randomly generated (seeded) filler orphan invoice."
+    },
+    {
+      "scenario_id": "orphan_payment_bg_00",
+      "scenario_type": "orphan_payment",
+      "description": "Background orphan payment (WIRE TRANSFER - MISC).",
+      "invoice_numbers": [],
+      "payment_row_indices": [
+        28
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "Randomly generated (seeded) filler orphan payment."
+    },
+    {
+      "scenario_id": "orphan_payment_bg_01",
+      "scenario_type": "orphan_payment",
+      "description": "Background orphan payment (BANK FEE ADJUSTMENT).",
+      "invoice_numbers": [],
+      "payment_row_indices": [
+        29
+      ],
+      "expected_match": false,
+      "expected_pairs": [],
+      "expected_exception_reason": "no_candidate",
+      "notes": "Randomly generated (seeded) filler orphan payment."
+    }
+  ],
+  "index": {
+    "by_invoice_number": {
+      "INV-1001": "clean_match_1",
+      "INV-1101": "amount_tolerance_edge_match_flat",
+      "INV-1102": "amount_tolerance_exceeded_flat",
+      "INV-1151": "amount_tolerance_edge_match_pct",
+      "INV-1152": "amount_tolerance_exceeded_pct",
+      "INV-1301": "date_window_edge_match",
+      "INV-1302": "date_window_exceeded",
+      "INV-1401": "fuzzy_reference_match_typo",
+      "INV-1411": "fuzzy_reference_match_reordered",
+      "INV-1421": "fuzzy_reference_match_abbreviated",
+      "INV-1431": "fuzzy_reference_match_no_reference_text",
+      "INV-1501": "orphan_invoice_1",
+      "INV-1701": "ambiguous_tie_1",
+      "INV-1702": "ambiguous_tie_1",
+      "INV-1801": "looks_like_partial_payment_half",
+      "INV-1851": "looks_like_partial_payment_sum",
+      "INV-1901": "duplicate_looking_payment_1",
+      "INV-1902": "duplicate_looking_payment_1",
+      "INV-5000": "clean_match_bg_00",
+      "INV-5001": "clean_match_bg_01",
+      "INV-5002": "clean_match_bg_02",
+      "INV-5003": "clean_match_bg_03",
+      "INV-5004": "clean_match_bg_04",
+      "INV-5005": "clean_match_bg_05",
+      "INV-5006": "clean_match_bg_06",
+      "INV-5007": "clean_match_bg_07",
+      "INV-5008": "clean_match_bg_08",
+      "INV-5009": "clean_match_bg_09",
+      "INV-5900": "orphan_invoice_bg_00",
+      "INV-5901": "orphan_invoice_bg_01",
+      "INV-5902": "orphan_invoice_bg_02"
+    },
+    "by_payment_row_index": {
+      "0": "clean_match_1",
+      "1": "amount_tolerance_edge_match_flat",
+      "2": "amount_tolerance_exceeded_flat",
+      "3": "amount_tolerance_edge_match_pct",
+      "4": "amount_tolerance_exceeded_pct",
+      "5": "date_window_edge_match",
+      "6": "date_window_exceeded",
+      "7": "fuzzy_reference_match_typo",
+      "8": "fuzzy_reference_match_reordered",
+      "9": "fuzzy_reference_match_abbreviated",
+      "10": "fuzzy_reference_match_no_reference_text",
+      "11": "orphan_payment_1",
+      "12": "ambiguous_tie_1",
+      "13": "looks_like_partial_payment_half",
+      "14": "looks_like_partial_payment_sum",
+      "15": "looks_like_partial_payment_sum",
+      "16": "duplicate_looking_payment_1",
+      "17": "duplicate_looking_payment_1",
+      "18": "clean_match_bg_00",
+      "19": "clean_match_bg_01",
+      "20": "clean_match_bg_02",
+      "21": "clean_match_bg_03",
+      "22": "clean_match_bg_04",
+      "23": "clean_match_bg_05",
+      "24": "clean_match_bg_06",
+      "25": "clean_match_bg_07",
+      "26": "clean_match_bg_08",
+      "27": "clean_match_bg_09",
+      "28": "orphan_payment_bg_00",
+      "29": "orphan_payment_bg_01"
+    }
+  }
+}
