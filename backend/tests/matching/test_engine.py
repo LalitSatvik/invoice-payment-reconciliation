@@ -317,6 +317,92 @@ def test_a_loser_whose_only_candidate_was_claimed_says_so():
     assert [ref.record_id for ref in loser.candidates] == ["PAY-1"]
 
 
+def test_a_claimed_loser_reports_its_runners_up_not_just_its_leader():
+    """An exception must carry the whole ranked list, not only the best entry.
+
+    INV-2 loses PAY-1 to INV-1, but INV-2 also has PAY-2 as a second candidate
+    scoring above ``auto_suggest_threshold``. That runner-up is precisely what a
+    human resolving the exception needs to see -- reporting only the leader
+    would hide a viable pairing behind the one that got away.
+    """
+    invoices = [
+        invoice("INV-1", number="INV-1"),
+        invoice("INV-2", number="INV-2"),
+    ]
+    payments = [
+        payment("PAY-1", reference="INV-1 Acme Robotics Inc"),
+        payment(
+            "PAY-2", on=date(2026, 2, 3), reference="INV-2 Acme Robotics Inc"
+        ),
+    ]
+
+    result = run_matching(invoices, payments, DEFAULT_CONFIG)
+
+    assert match_pairs(result) == [("INV-1", "PAY-1")]
+
+    loser = exception_for(result, SIDE_INVOICE, "INV-2")
+    assert loser.reason == REASON_CANDIDATE_CLAIMED
+    assert [ref.record_id for ref in loser.candidates] == ["PAY-1", "PAY-2"]
+    # Best first, and the runner-up would have been an auto-suggestion.
+    assert loser.candidates[0].confidence > loser.candidates[1].confidence
+    assert loser.candidates[1].confidence > DEFAULT_CONFIG.auto_suggest_threshold
+
+
+def test_a_contested_counterparts_exception_reports_runners_up_too():
+    """Same requirement on the other ambiguity branch.
+
+    Both invoices want PAY-1 equally, so PAY-1 is contested and neither commits.
+    Each invoice also has PAY-2 as a clear second choice, which must be listed.
+    """
+    vendor = "Lighthouse Media Group"
+    invoices = [
+        invoice("INV-1", number="INV-1701", vendor=vendor),
+        invoice("INV-2", number="INV-1702", vendor=vendor),
+    ]
+    payments = [
+        payment("PAY-1", reference=vendor + " payment", counterparty=vendor),
+        payment(
+            "PAY-2",
+            on=date(2026, 2, 4),
+            reference="INV-1701 " + vendor,
+            counterparty=vendor,
+        ),
+    ]
+
+    result = run_matching(invoices, payments, DEFAULT_CONFIG)
+
+    assert result.matches == []
+
+    for invoice_id in ("INV-1", "INV-2"):
+        entry = exception_for(result, SIDE_INVOICE, invoice_id)
+        assert entry.reason == REASON_AMBIGUOUS
+        assert [ref.record_id for ref in entry.candidates] == ["PAY-1", "PAY-2"]
+        assert entry.candidates[0].confidence > entry.candidates[1].confidence
+
+
+def test_every_exception_lists_its_candidates_best_first():
+    """Ordering is part of the contract: the list is a ranking, not a bag."""
+    invoices = [
+        invoice("INV-1", number="INV-1"),
+        invoice("INV-2", number="INV-2"),
+    ]
+    payments = [
+        payment("PAY-1", reference="INV-1 Acme Robotics Inc"),
+        payment(
+            "PAY-2", on=date(2026, 2, 3), reference="INV-2 Acme Robotics Inc"
+        ),
+    ]
+
+    result = run_matching(invoices, payments, DEFAULT_CONFIG)
+
+    assert result.exceptions
+    for entry in result.exceptions:
+        scores = [ref.confidence for ref in entry.candidates]
+        assert scores == sorted(scores, reverse=True)
+        ids = [ref.record_id for ref in entry.candidates]
+        assert len(ids) == len(set(ids))
+
+
 def test_every_unmatched_record_gets_exactly_one_exception():
     invoices = [invoice("INV-1"), invoice("INV-2", amount="5000.00")]
     payments = [payment("PAY-1"), payment("PAY-2", amount="7000.00")]

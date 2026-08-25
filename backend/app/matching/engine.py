@@ -140,6 +140,12 @@ def _classify(
 
     # This record has one clear preference, but the record it prefers is itself
     # being fought over -- so the ambiguity is real for this record too.
+    #
+    # Both remaining branches report this record's *full* ranked candidate list,
+    # not just its leader. A reviewer resolving the exception by hand needs to
+    # see the runners-up and their scores: the second choice may well be a good
+    # pairing that only lost on points, and hiding it turns an explainable
+    # decision back into a guess.
     counterpart_id = (
         best.payment_id if side == SIDE_INVOICE else best.invoice_id
     )
@@ -149,7 +155,7 @@ def _classify(
             side=side,
             record_id=record_id,
             reason=REASON_AMBIGUOUS,
-            candidates=_refs([best], side),
+            candidates=_refs(own_ranked, side),
         )
 
     # Clear preference, uncontested counterpart -- the counterpart simply
@@ -158,7 +164,7 @@ def _classify(
         side=side,
         record_id=record_id,
         reason=REASON_CANDIDATE_CLAIMED,
-        candidates=_refs([best], side),
+        candidates=_refs(own_ranked, side),
     )
 
 
