@@ -5,7 +5,10 @@ added in later tasks lives under the ``/api/v1`` base path.
 """
 from fastapi import APIRouter
 
+from app.api.routes.exceptions import router as exceptions_router
+from app.api.routes.exports import router as exports_router
 from app.api.routes.mappings import router as mappings_router
+from app.api.routes.matches import router as matches_router
 from app.api.routes.uploads import router as uploads_router
 
 router = APIRouter()
@@ -18,3 +21,6 @@ def health_check() -> dict:
 
 router.include_router(uploads_router, prefix="/api/v1")
 router.include_router(mappings_router, prefix="/api/v1")
+router.include_router(matches_router, prefix="/api/v1")
+router.include_router(exceptions_router, prefix="/api/v1")
+router.include_router(exports_router, prefix="/api/v1")

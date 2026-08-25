@@ -15,6 +15,10 @@ exception_reason = Enum(
     "possible_split_payment",
     "rejected_by_reviewer",
     "amount_mismatch_only",
+    # Added by migration 6bc391235a79: a record with exactly one uncontested,
+    # above-threshold candidate that nonetheless lost the mutual-best pairing
+    # to a rival claim on the other side (app.matching.types.REASON_CANDIDATE_CLAIMED).
+    "candidate_claimed_elsewhere",
     name="exception_reason",
 )
 exception_status = Enum("open", "resolved", name="exception_status")
