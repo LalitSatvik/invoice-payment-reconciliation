@@ -1,26 +1,59 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Design tokens for the reconciliation tool's visual language, defined
+ * directly in Tailwind v4's CSS-first `@theme` block - this is the
+ * canonical source Tailwind reads to generate utilities (`bg-accent`,
+ * `rounded-card`, `shadow-card`, etc) and it also emits each variable as a
+ * real runtime CSS custom property. `frontend/styles/tokens.ts` mirrors the
+ * same literal values for contexts outside CSS (inline styles, chart color
+ * scales added in later tasks).
+ */
+@theme {
+  /* Core palette */
+  --color-bg: #f0eff2;
+  --color-surface: #ffffff;
+  --color-text: #000000;
+  --color-text-muted: #5c5c68;
+  --color-border: #e2e1e7;
+
+  /* Accent (mint) - used sparingly: primary CTA, active nav pill, positive highlight */
+  --color-accent: #75fb90;
+  --color-accent-hover: #54e278;
+  --color-accent-active: #3ecb66;
+  --color-accent-soft: #e4fce9;
+
+  /* Semantic aliases for confidence bands / exception states.
+     Hue-matched to the mint accent rather than default red/yellow/green. */
+  --color-success: #167a45;
+  --color-success-bg: #dff5e7;
+  --color-warning: #9a5b0a;
+  --color-warning-bg: #fbeeda;
+  --color-danger: #b7452e;
+  --color-danger-bg: #fbe7e1;
+  --color-neutral: #55555f;
+  --color-neutral-bg: #eae9ee;
+
+  /* Shape */
+  --radius-card: 20px;
+  --radius-pill: 999px;
+  --radius-sm: 10px;
+
+  /* Elevation - soft and low-opacity, no heavy drop shadows */
+  --shadow-card: 0 1px 2px rgba(15, 15, 20, 0.04), 0 10px 20px -12px rgba(15, 15, 20, 0.1);
 }
 
+/*
+ * `@theme inline` (rather than the block above) for the font mapping: Next.js
+ * font loaders inject `--font-urbanist` as a class-scoped variable on <html>
+ * at runtime, and this is the pattern Next.js's own Tailwind v4 scaffold
+ * uses to reference a loader-provided variable from `fontFamily.sans`.
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-urbanist);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
