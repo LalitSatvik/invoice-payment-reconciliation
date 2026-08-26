@@ -57,3 +57,22 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
 }
+
+/*
+ * Button and PillNav both define an explicit
+ * `focus-visible:ring-2 ring-text/70 ring-offset-2` contract. Raw form
+ * controls (`<input>`, `<select>`, `<textarea>`) appear directly in several
+ * pages (column mapping, filters, resolution notes) and would otherwise
+ * fall back to each browser's own default focus ring, which breaks that
+ * contract and doesn't match the token palette. This mirrors it at the
+ * element level so every focusable control in the app looks the same when
+ * focused, without having to repeat the utility classes at every call site.
+ */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-bg),
+    0 0 0 4px rgba(0, 0, 0, 0.7);
+}

@@ -152,7 +152,7 @@ function ExceptionCard({
             {exception.candidate_ids!.map((candidate) => (
               <label
                 key={candidate.id}
-                className="flex items-center justify-between gap-3 rounded-sm border border-border px-3 py-2 text-sm has-[:checked]:border-text has-[:checked]:bg-accent-soft"
+                className="flex items-center justify-between gap-3 rounded-sm border border-border px-3 py-2 text-sm transition-colors hover:border-text/40 has-[:checked]:border-text has-[:checked]:bg-accent-soft"
               >
                 <span className="flex items-center gap-2">
                   <input

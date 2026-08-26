@@ -96,7 +96,7 @@ export default function BankStatementUploadPage() {
           accept=".csv,text/csv"
           onChange={handleFileChange}
           disabled={stage === "submitting"}
-          className="text-sm file:mr-4 file:h-11 file:rounded-pill file:border-0 file:bg-accent file:px-5 file:text-sm file:font-semibold file:text-text hover:file:bg-accent-hover"
+          className="text-sm file:mr-4 file:h-11 file:rounded-pill file:border-0 file:bg-accent file:px-5 file:text-sm file:font-semibold file:text-text file:transition-colors hover:file:bg-accent-hover active:file:bg-accent-active"
         />
         {file && <p className="text-sm text-text-muted">Selected: {file.name}</p>}
       </Card>

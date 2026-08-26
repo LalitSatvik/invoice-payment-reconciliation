@@ -18,6 +18,19 @@ const navItems = [
   { href: "/export", label: "Export", icon: <ExportIcon /> },
 ];
 
+/** True once a summary has loaded but there is nothing in it yet -- no
+ * matches, no unmatched invoices, no unmatched payments. That only happens
+ * before anything has been uploaded, so it gets its own message rather than
+ * three zero-value KPI cards that could otherwise be mistaken for a stuck
+ * loading state or a quiet error. */
+function isEmptySummary(summary: ExportSummaryResponse): boolean {
+  return (
+    summary.matched.count === 0 &&
+    summary.unmatched.invoices.count === 0 &&
+    summary.unmatched.payments.count === 0
+  );
+}
+
 export default function Home() {
   const [summary, setSummary] = useState<ExportSummaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +68,16 @@ export default function Home() {
             </p>
           </Card>
         )}
-        {summary && (
+        {summary && isEmptySummary(summary) && (
+          <Card>
+            <p className="text-sm font-medium">No data yet.</p>
+            <p className="text-sm text-text-muted">
+              Upload invoices and a bank statement below to get started.
+            </p>
+          </Card>
+        )}
+
+        {summary && !isEmptySummary(summary) && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card>
               <KpiStat label="Matched" value={summary.matched.count} delta={formatCurrency(summary.matched.amount)} />

@@ -42,6 +42,17 @@ function reasonLabel(reason: string): string {
     .join(" ");
 }
 
+/** True once a summary has loaded but there is nothing in it yet -- see the
+ * matching helper on the dashboard page (`app/page.tsx`) for why this gets
+ * its own message rather than three zero-value KPI cards. */
+function isEmptySummary(summary: ExportSummaryResponse): boolean {
+  return (
+    summary.matched.count === 0 &&
+    summary.unmatched.invoices.count === 0 &&
+    summary.unmatched.payments.count === 0
+  );
+}
+
 function formatTimestamp(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -104,32 +115,41 @@ export default function ExportPage() {
                 Generated {formatTimestamp(summary.generated_at)}
               </span>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {isEmptySummary(summary) ? (
               <Card>
-                <KpiStat
-                  label="Matched"
-                  value={summary.matched.count}
-                  delta={formatCurrency(summary.matched.amount)}
-                  deltaTone="positive"
-                />
+                <p className="text-sm font-medium">Nothing to export yet.</p>
+                <p className="text-sm text-text-muted">
+                  Upload invoices and a bank statement, then run matching, before exporting.
+                </p>
               </Card>
-              <Card>
-                <KpiStat
-                  label="Unmatched invoices"
-                  value={summary.unmatched.invoices.count}
-                  delta={formatCurrency(summary.unmatched.invoices.amount)}
-                  deltaTone="negative"
-                />
-              </Card>
-              <Card>
-                <KpiStat
-                  label="Unmatched payments"
-                  value={summary.unmatched.payments.count}
-                  delta={formatCurrency(summary.unmatched.payments.amount)}
-                  deltaTone="negative"
-                />
-              </Card>
-            </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Card>
+                  <KpiStat
+                    label="Matched"
+                    value={summary.matched.count}
+                    delta={formatCurrency(summary.matched.amount)}
+                    deltaTone="positive"
+                  />
+                </Card>
+                <Card>
+                  <KpiStat
+                    label="Unmatched invoices"
+                    value={summary.unmatched.invoices.count}
+                    delta={formatCurrency(summary.unmatched.invoices.amount)}
+                    deltaTone="negative"
+                  />
+                </Card>
+                <Card>
+                  <KpiStat
+                    label="Unmatched payments"
+                    value={summary.unmatched.payments.count}
+                    delta={formatCurrency(summary.unmatched.payments.amount)}
+                    deltaTone="negative"
+                  />
+                </Card>
+              </div>
+            )}
           </section>
 
           <section className="flex flex-col gap-4">
