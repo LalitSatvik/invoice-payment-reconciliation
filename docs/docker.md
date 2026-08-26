@@ -18,6 +18,9 @@ Concretely, not verified:
 - That the frontend's build step succeeds inside `node:23-slim` (Tailwind v4
   native binary resolution, in particular).
 - That `docker compose exec backend pytest` actually goes green in-container.
+- That the `backend` service's healthcheck (a Python `urllib.request`
+  one-liner polling `GET /health`) actually reports healthy the way it's
+  meant to, or that `docker compose up -d --wait` behaves as described.
 - Any port, network, or timing behavior that only shows up at runtime.
 
 **Please run `docker compose up --build` yourself as the first real test of
@@ -52,11 +55,14 @@ container alone will not pick up a new value.
 
 `backend/Dockerfile` installs only `requirements.txt` by default (no
 `ARG INSTALL_DEV`, or `INSTALL_DEV=false`) -- a production build never gets
-`pytest`/`httpx`. `docker-compose.yml` passes `--build-arg INSTALL_DEV=true`
-for the `backend` service specifically so `docker compose exec backend
-pytest` (asked for in the task) has a test runner available. That is a
-decision made in `docker-compose.yml`, a local/dev orchestration file, not a
-default of the Dockerfile itself.
+`pytest`/`httpx`. `docker-compose.yml` passes `--build-arg
+INSTALL_DEV=${INSTALL_DEV:-true}` for the `backend` service specifically so
+`docker compose exec backend pytest` (asked for in the task) has a test
+runner available by default, while still being overridable (e.g.
+`INSTALL_DEV=false docker compose build backend`) without editing the compose
+file. That default-on-but-overridable behavior is a decision made in
+`docker-compose.yml`, a local/dev orchestration file, not a default of the
+Dockerfile itself.
 
 ## The test database
 
@@ -85,6 +91,37 @@ have no tables, and every test would fail on first connection. It has not
 been executed, so treat it as the most likely thing to need a second look
 once Docker is actually run.
 
+Both migrations happen inside `docker-entrypoint.sh`, before uvicorn starts
+serving -- and the `backend` service's healthcheck (see below) only reports
+healthy once `GET /health` is actually answering, i.e. after both migrations
+have finished. So **wait for `backend` to report healthy before running
+`docker compose exec backend pytest`** -- `docker compose up -d --wait` blocks
+until every service with a healthcheck (`postgres` and `backend`) reports
+healthy, which is the simplest way to do that:
+
+```bash
+docker compose up -d --wait
+docker compose exec backend pytest
+```
+
+Running `pytest` against a `backend` container that hasn't finished migrating
+yet would very likely fail with a connection or "relation does not exist"
+error, not because the tests are wrong but because the schema isn't there
+yet.
+
+## Backend healthcheck
+
+`docker-compose.yml`'s `backend` service has a `healthcheck` that polls
+`GET /health` with a plain Python one-liner
+(`urllib.request.urlopen(...)`) rather than `curl`/`wget`, since
+`python:3.8-slim` doesn't install either by default and adding one just for
+a healthcheck isn't worth the extra package. `frontend` depends on `backend`
+with `condition: service_healthy` (the same pattern `backend` already uses
+for `postgres`), so Compose won't start the frontend container until the
+backend is actually answering requests -- not just until its process has
+started. This also gives `docker compose up -d --wait` (see above) something
+real to block on.
+
 ## OCR fallback (`poppler-utils` / `tesseract-ocr`)
 
 `app/ingestion/ocr_fallback.py` shells out to Poppler (via `pdf2image`) and
@@ -107,5 +144,30 @@ the reasoning that every pinned version (`psycopg2-binary==2.9.9`,
 `pdfplumber==0.11.5`, `pytesseract==0.3.13`, `pdf2image==1.17.0`) is a
 mainstream package that has shipped manylinux wheels for Python 3.8 for
 years. This is a static, from-knowledge judgment, not something confirmed by
-an actual `pip install` inside a Linux container -- if the build fails on a
-missing compiler, that is the fix (add `build-essential` back).
+an actual `pip install` inside a Linux container.
+
+**If `docker compose up --build` fails on `pip install`, check here first:**
+the two highest-risk pins in that list are **`reportlab==4.4.3`** and
+**`pdfplumber==0.11.5`** (via its `pypdfium2` dependency). Both are exactly
+the kind of package that drops prebuilt wheels for older Python versions in
+newer releases, and Python 3.8 has been EOL since October 2024 -- it is
+plausible, though not confirmed either way, that one of these no longer
+publishes a cp38 manylinux wheel at these exact pinned versions, which would
+force a from-source build and fail without a compiler toolchain. If that
+happens, the fix is either to add `build-essential` (and, for `reportlab`,
+possibly `libfreetype6-dev`) to the `apt-get install` list in
+`backend/Dockerfile`, or to confirm a cp38 wheel exists for the pinned
+version and adjust if not. Every other pin in the list is lower risk (broad,
+long-standing manylinux wheel coverage for cp38: `pandas`, `Pillow`,
+`rapidfuzz`, `psycopg2-binary`, `pytesseract` (pure Python), `pdf2image`
+(pure Python)).
+
+`psycopg2-binary` itself is worth a separate note: it's a well-known
+local/dev-only convenience pin -- it bundles a statically-linked `libpq`
+inside the wheel, which is normally fine but can occasionally conflict with
+a system `libpq`/OpenSSL already present in a given base image or host
+(the psycopg project's own docs recommend `psycopg2` built from source
+against the system `libpq` for production use). This predates Task 12 (it
+was already pinned in `requirements.txt`), but Task 12 is what ships it in
+the one image this repo actually builds, so it's worth carrying the caveat
+here rather than leaving it silent.

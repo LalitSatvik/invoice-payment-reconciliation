@@ -15,7 +15,7 @@ alembic upgrade head
 # tests against a second, separate Postgres database (tests/conftest.py:
 # TEST_DATABASE_URL, defaulting to .../reconcile_test) so test runs never
 # touch application data. That database is created empty by
-# docker/postgres-init/01-create-test-databases.sh on first Postgres start,
+# docker/postgres-init/01-create-test-database.sh on first Postgres start,
 # but nothing else in the repo ever migrates it. Do that here, once per
 # container start, so the test suite has a schema to run against as soon as
 # the stack is up -- this only runs when TEST_DATABASE_URL is set (i.e. in

@@ -27,11 +27,25 @@ services:
       # only requirements.txt. This compose file opts into
       # requirements-dev.txt (pytest, httpx) so `docker compose exec backend
       # pytest` works, without that being the Dockerfile's own default.
+      # Overridable (e.g. `INSTALL_DEV=false docker compose build backend`)
+      # without editing this file.
       args:
-        INSTALL_DEV: "true"
+        INSTALL_DEV: ${INSTALL_DEV:-true}
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # No `curl`/`wget` in python:3.8-slim by default, so a stdlib-only
+      # Python one-liner stands in for one. Gives `docker compose up --wait`
+      # and the frontend's `condition: service_healthy` dependency below a
+      # real readiness signal -- both migrations (app DB + test DB, see
+      # docker-entrypoint.sh) have to finish and uvicorn has to be accepting
+      # connections before this passes.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${BACKEND_PORT:-8000}/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     environment:
       # Points at the `postgres` service by its Compose service name, not
       # localhost -- containers reach each other over the Compose network,
@@ -62,7 +76,8 @@ services:
         # reach, i.e. the published host port, NOT "http://backend:8000".
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       # `next start` reads PORT when no -p flag is given (see
       # frontend/Dockerfile).

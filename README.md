@@ -13,7 +13,9 @@ items, and export the reconciled results.
 > Please run `docker compose up --build` yourself as the first real test, and
 > see [`docs/docker.md`](docs/docker.md) for exactly what was and wasn't
 > verified, and the reasoning behind the less obvious choices (in particular
-> `NEXT_PUBLIC_API_URL`).
+> `NEXT_PUBLIC_API_URL`). If `pip install` fails during the backend build,
+> `docs/docker.md`'s "Dependency wheels" section names the two pins most
+> likely to be the cause (`reportlab`, `pdfplumber`).
 
 ### Prerequisites
 
@@ -54,7 +56,11 @@ for what each file contains and the determinism guarantees).
 
 ### Run the backend test suite
 
+Wait for the backend to report healthy first, so both databases have finished
+migrating:
+
 ```bash
+docker compose up -d --wait
 docker compose exec backend pytest
 ```
 
