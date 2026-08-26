@@ -1,0 +1,74 @@
+# Local/dev orchestration for the full stack. Compose automatically loads a
+# `.env` file from this directory to fill in the ${VAR} substitutions below
+# (see README.md: `cp .env.example .env` before running).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reconcile_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reconcile_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-reconcile}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the separate `reconcile_test` database the backend test
+      # suite runs against (see backend/tests/conftest.py). Runs once, only
+      # against a fresh/empty data volume.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reconcile_app} -d ${POSTGRES_DB:-reconcile}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      # See backend/Dockerfile: the default (no build arg) image installs
+      # only requirements.txt. This compose file opts into
+      # requirements-dev.txt (pytest, httpx) so `docker compose exec backend
+      # pytest` works, without that being the Dockerfile's own default.
+      args:
+        INSTALL_DEV: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Points at the `postgres` service by its Compose service name, not
+      # localhost -- containers reach each other over the Compose network,
+      # never through the host loopback address.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-reconcile_app}:${POSTGRES_PASSWORD:-reconcile_dev}@postgres:5432/${POSTGRES_DB:-reconcile}
+      # Separate database for `docker compose exec backend pytest`
+      # (backend/tests/conftest.py); created by docker/postgres-init/ and
+      # migrated to head by backend/docker-entrypoint.sh on container start.
+      TEST_DATABASE_URL: postgresql://${POSTGRES_USER:-reconcile_app}:${POSTGRES_PASSWORD:-reconcile_dev}@postgres:5432/reconcile_test
+      POSTGRES_USER: ${POSTGRES_USER:-reconcile_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reconcile_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-reconcile}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      # Used only to compute Settings.frontend_origin for CORS -- must match
+      # the host-facing port the browser actually loads the frontend on.
+      FRONTEND_PORT: ${FRONTEND_PORT:-3000}
+      ENABLE_OCR_FALLBACK: ${ENABLE_OCR_FALLBACK:-false}
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the browser bundle at `next build` time (see
+        # frontend/Dockerfile and docs/docker.md). Must be an address the
+        # browser -- running on the host, outside the Compose network -- can
+        # reach, i.e. the published host port, NOT "http://backend:8000".
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    environment:
+      # `next start` reads PORT when no -p flag is given (see
+      # frontend/Dockerfile).
+      PORT: ${FRONTEND_PORT:-3000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
+
+volumes:
+  pgdata:
