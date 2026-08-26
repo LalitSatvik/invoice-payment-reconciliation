@@ -5,7 +5,16 @@
  * different environments without a rebuild-time config file.
  */
 import type {
+  ExceptionListResponse,
+  ExceptionOut,
+  ExceptionResolveRequest,
   ExportSummaryResponse,
+  MatchDetailOut,
+  MatchingRunRequest,
+  MatchingRunResponse,
+  MatchListResponse,
+  MatchOut,
+  MatchStatus,
   PreviewResponse,
   SourceMappingCreate,
   SourceMappingOut,
@@ -134,4 +143,77 @@ export function updateMapping(
 
 export function getExportSummary(): Promise<ExportSummaryResponse> {
   return request<ExportSummaryResponse>("/api/v1/export/summary");
+}
+
+// ---------------------------------------------------------------------------
+// Matching / match review
+// ---------------------------------------------------------------------------
+
+export function runMatching(payload: MatchingRunRequest = {}): Promise<MatchingRunResponse> {
+  return request<MatchingRunResponse>("/api/v1/matching/run", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ListMatchesParams {
+  status?: MatchStatus;
+  minConfidence?: number;
+  maxConfidence?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export function listMatches(params: ListMatchesParams = {}): Promise<MatchListResponse> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.minConfidence !== undefined) query.set("min_confidence", String(params.minConfidence));
+  if (params.maxConfidence !== undefined) query.set("max_confidence", String(params.maxConfidence));
+  query.set("limit", String(params.limit ?? 200));
+  query.set("offset", String(params.offset ?? 0));
+  return request<MatchListResponse>(`/api/v1/matches?${query.toString()}`);
+}
+
+export function getMatch(matchId: string): Promise<MatchDetailOut> {
+  return request<MatchDetailOut>(`/api/v1/matches/${matchId}`);
+}
+
+export function acceptMatch(matchId: string): Promise<MatchOut> {
+  return request<MatchOut>(`/api/v1/matches/${matchId}/accept`, { method: "POST" });
+}
+
+export function rejectMatch(matchId: string): Promise<MatchOut> {
+  return request<MatchOut>(`/api/v1/matches/${matchId}/reject`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Exceptions
+// ---------------------------------------------------------------------------
+
+export interface ListExceptionsParams {
+  status?: "open" | "resolved";
+  reason?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listExceptions(params: ListExceptionsParams = {}): Promise<ExceptionListResponse> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.reason) query.set("reason", params.reason);
+  query.set("limit", String(params.limit ?? 200));
+  query.set("offset", String(params.offset ?? 0));
+  return request<ExceptionListResponse>(`/api/v1/exceptions?${query.toString()}`);
+}
+
+export function resolveException(
+  exceptionId: string,
+  payload: ExceptionResolveRequest,
+): Promise<ExceptionOut> {
+  return request<ExceptionOut>(`/api/v1/exceptions/${exceptionId}/resolve`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
 }

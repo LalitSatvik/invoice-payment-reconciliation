@@ -96,3 +96,121 @@ export interface ExportSummaryResponse {
 export interface ApiErrorBody {
   detail?: string | { msg: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Matching / match review
+// ---------------------------------------------------------------------------
+
+export type MatchStatus = "suggested" | "accepted" | "rejected";
+
+export interface MatchingRunRequest {
+  batch_ids?: string[] | null;
+}
+
+export interface MatchingRunResponse {
+  matches_created: number;
+  exceptions_created: number;
+}
+
+/** Mirrors the backend's `InvoiceSummary` (see `app/schemas/match.py`). */
+export interface InvoiceSummary {
+  id: string;
+  upload_batch_id: string;
+  invoice_number: string | null;
+  vendor_name: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  amount: string;
+  currency: string;
+  raw_reference_text: string | null;
+  status: string;
+}
+
+/** Mirrors the backend's `PaymentSummary`. */
+export interface PaymentSummary {
+  id: string;
+  upload_batch_id: string;
+  payment_date: string;
+  amount: string;
+  currency: string;
+  reference: string | null;
+  counterparty: string | null;
+  status: string;
+}
+
+/** All score fields are Decimal-as-string on a 0-100 scale. */
+export interface MatchOut {
+  id: string;
+  invoice_id: string;
+  payment_id: string;
+  confidence_score: string;
+  amount_score: string;
+  date_score: string;
+  reference_score: string;
+  match_status: MatchStatus;
+  suggested_at: string;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+}
+
+export interface MatchDetailOut extends MatchOut {
+  invoice: InvoiceSummary;
+  payment: PaymentSummary;
+}
+
+export interface MatchListResponse {
+  items: MatchOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------------
+// Exceptions
+// ---------------------------------------------------------------------------
+
+export type ExceptionStatus = "open" | "resolved";
+
+export type ExceptionReason =
+  | "no_candidate"
+  | "below_threshold"
+  | "ambiguous_multiple_candidates"
+  | "candidate_claimed_elsewhere"
+  | "possible_split_payment"
+  | "rejected_by_reviewer"
+  | "amount_mismatch_only";
+
+/** One entry of `ExceptionOut.candidate_ids`: an opposite-side record id
+ * plus the confidence score it scored against the exception's own record. */
+export interface ExceptionCandidate {
+  id: string;
+  confidence: number;
+}
+
+export interface ExceptionOut {
+  id: string;
+  invoice_id: string | null;
+  payment_id: string | null;
+  reason: ExceptionReason;
+  candidate_ids: ExceptionCandidate[] | null;
+  status: ExceptionStatus;
+  resolution_note: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface ExceptionListResponse {
+  items: ExceptionOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Body for `POST /exceptions/{id}/resolve` -- exactly one mode: link
+ * (`link_invoice_id` + `link_payment_id`) or dismiss (`dismiss: true`). */
+export interface ExceptionResolveRequest {
+  link_invoice_id?: string;
+  link_payment_id?: string;
+  dismiss?: boolean;
+  resolution_note?: string;
+}
