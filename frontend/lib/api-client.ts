@@ -145,6 +145,14 @@ export function getExportSummary(): Promise<ExportSummaryResponse> {
   return request<ExportSummaryResponse>("/api/v1/export/summary");
 }
 
+/** Direct download URL for the reconciliation CSV. No auth header is
+ * needed today, so callers can point a plain anchor at this instead of
+ * fetching a blob -- the backend already sets the attachment
+ * content-disposition. */
+export function getReconciliationCsvUrl(): string {
+  return `${API_BASE_URL}/api/v1/export/reconciliation.csv`;
+}
+
 // ---------------------------------------------------------------------------
 // Matching / match review
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ApiError, getExportSummary } from "@/lib/api-client";
 import type { ExportSummaryResponse } from "@/lib/types";
+import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { KpiStat } from "@/components/ui/KpiStat";
@@ -16,12 +17,6 @@ const navItems = [
   { href: "/exceptions", label: "Exceptions", icon: <ExceptionsIcon /> },
   { href: "/export", label: "Export", icon: <ExportIcon /> },
 ];
-
-function formatCurrency(value: string): string {
-  const amount = Number(value);
-  if (Number.isNaN(amount)) return value;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
-}
 
 export default function Home() {
   const [summary, setSummary] = useState<ExportSummaryResponse | null>(null);
