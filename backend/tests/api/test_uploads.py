@@ -289,3 +289,35 @@ def test_upload_pdf_invoice_missing_required_fields_fails_the_batch(client, db_s
 def test_get_unknown_batch_returns_404(client):
     response = client.get("/api/v1/uploads/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
+
+
+def test_preview_rejects_a_non_csv_extension(client):
+    response = client.post(
+        "/api/v1/uploads/preview",
+        files={"file": ("notes.txt", "hello", "text/plain")},
+    )
+    assert response.status_code == 415
+    assert ".txt" in response.json()["detail"]
+
+
+def test_bank_statement_upload_rejects_pdf(client):
+    response = client.post(
+        "/api/v1/uploads/bank-statement",
+        data={"source_mapping_id": "00000000-0000-0000-0000-000000000000"},
+        files={"file": ("statement.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    # Extension is checked before the mapping lookup, so this 415s rather
+    # than 404ing on the bogus mapping id.
+    assert response.status_code == 415
+
+
+def test_upload_rejects_a_file_over_the_configured_size_limit(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_bytes", 10)
+    response = client.post(
+        "/api/v1/uploads/preview",
+        files={"file": ("invoices.csv", INVOICE_CSV, "text/csv")},
+    )
+    assert response.status_code == 413
+    assert "10 byte upload limit" in response.json()["detail"]

@@ -3,18 +3,23 @@ statement ingestion, and batch status lookup.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.session import get_db
 from app.models import SourceMapping, UploadBatch
 from app.schemas.upload import PreviewResponse, UploadBatchOut
 from app.services import upload_service
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
+
+_CSV_EXTENSIONS = {".csv"}
+_INVOICE_EXTENSIONS = {".csv", ".pdf"}
 
 
 def _looks_like_pdf(filename: str, content_type: Optional[str]) -> bool:
@@ -23,12 +28,43 @@ def _looks_like_pdf(filename: str, content_type: Optional[str]) -> bool:
     return filename.lower().endswith(".pdf")
 
 
+def _reject_unless_allowed_extension(filename: str, allowed: set) -> None:
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in allowed:
+        raise HTTPException(
+            status_code=415,
+            detail=f"unsupported file type '{ext or '(none)'}'; accepted: {sorted(allowed)}",
+        )
+
+
+def _read_upload_bounded(file: UploadFile) -> bytes:
+    """Read an upload's bytes, aborting as soon as it exceeds the configured
+    limit rather than buffering an arbitrarily large body into memory first.
+    """
+    limit = settings.max_upload_bytes
+    chunks = []
+    total = 0
+    while True:
+        chunk = file.file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file exceeds the {limit} byte upload limit",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/preview", response_model=PreviewResponse)
 def preview_upload(file: UploadFile = File(...)) -> dict:
     """Parse headers + a few sample rows only -- no persistence. Drives the
     frontend's column-mapping step before a mapping is chosen/saved.
     """
-    contents = file.file.read()
+    _reject_unless_allowed_extension(file.filename or "", _CSV_EXTENSIONS)
+    contents = _read_upload_bounded(file)
     try:
         return upload_service.build_preview(contents)
     except Exception as exc:
@@ -45,7 +81,8 @@ def upload_invoices(
     or CSV (mapping-driven, ``source_mapping_id`` required).
     """
     filename = file.filename or "upload"
-    contents = file.file.read()
+    _reject_unless_allowed_extension(filename, _INVOICE_EXTENSIONS)
+    contents = _read_upload_bounded(file)
 
     if _looks_like_pdf(filename, file.content_type):
         return upload_service.process_invoice_pdf_upload(
@@ -81,7 +118,8 @@ def upload_bank_statement(
 ) -> UploadBatch:
     """Ingest a bank statement CSV; ``source_mapping_id`` is always required."""
     filename = file.filename or "upload"
-    contents = file.file.read()
+    _reject_unless_allowed_extension(filename, _CSV_EXTENSIONS)
+    contents = _read_upload_bounded(file)
 
     mapping = db.get(SourceMapping, source_mapping_id)
     if mapping is None:

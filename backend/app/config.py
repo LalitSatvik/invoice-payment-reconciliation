@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     # Set in deployed environments to the real frontend URL (e.g. a Vercel
     # deployment). Falls back to the local dev server when unset.
     frontend_url: Optional[str] = None
+    # Uploads larger than this are rejected before being fully read into
+    # memory. 10 MB comfortably covers real invoice/statement CSVs and PDFs.
+    max_upload_bytes: int = 10 * 1024 * 1024
+    # When both are set, every /api/v1/* request must present matching HTTP
+    # Basic credentials. Unset locally so local dev stays unauthenticated.
+    basic_auth_username: Optional[str] = None
+    basic_auth_password: Optional[str] = None
 
     @property
     def frontend_origin(self) -> str:
