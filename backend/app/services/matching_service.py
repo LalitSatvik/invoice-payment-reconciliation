@@ -25,6 +25,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.matching import DEFAULT_CONFIG, SIDE_INVOICE, InvoiceRecord, PaymentRecord, run_matching
@@ -34,6 +35,14 @@ from app.models.exception import exception_reason, exception_status
 from app.models.match import match_status_type
 
 REASON_REJECTED_BY_REVIEWER = "rejected_by_reviewer"
+
+# Written into ``ExceptionRecord.resolution_note`` when an exception is closed
+# out automatically because its record picked up a newer outcome (a committed
+# match, or a freshly-classified exception from a later run) rather than
+# because a reviewer acted on it. See ``_close_open_exceptions_for``.
+SUPERSEDED_RESOLUTION_NOTE = (
+    "Superseded: record was reconsidered by a later matching run."
+)
 
 VALID_MATCH_STATUSES = frozenset(match_status_type.enums)
 VALID_EXCEPTION_STATUSES = frozenset(exception_status.enums)
@@ -105,11 +114,60 @@ def _candidate_ids_json(candidates) -> List[Dict[str, Any]]:
     return [{"id": c.record_id, "confidence": c.confidence} for c in candidates]
 
 
+def _close_open_exceptions_for(
+    db: Session,
+    *,
+    invoice_id: Optional[UUID] = None,
+    payment_id: Optional[UUID] = None,
+    note: str = SUPERSEDED_RESOLUTION_NOTE,
+) -> int:
+    """Close every still-``open`` ``ExceptionRecord`` naming either id.
+
+    An ``ExceptionRecord`` is one-sided (it names an invoice *or* a payment;
+    only ``rejected_by_reviewer`` names both), so a record's open exceptions
+    are exactly the rows whose ``invoice_id``/``payment_id`` is that record.
+    Every path that gives a record a *new* outcome -- a committed match, a
+    freshly-classified exception on a later run, or a manual link -- calls
+    this first, so a record never accumulates two open exceptions at once and
+    an exception never outlives the situation that produced it.
+
+    Rows are mutated but not committed; the caller owns the transaction.
+    Returns how many rows were closed.
+    """
+    clauses = []
+    if invoice_id is not None:
+        clauses.append(ExceptionRecord.invoice_id == invoice_id)
+    if payment_id is not None:
+        clauses.append(ExceptionRecord.payment_id == payment_id)
+    if not clauses:
+        return 0
+
+    records = (
+        db.query(ExceptionRecord)
+        .filter(ExceptionRecord.status == "open")
+        .filter(or_(*clauses))
+        .all()
+    )
+    closed_at = _utcnow()
+    for record in records:
+        record.status = "resolved"
+        record.resolution_note = note
+        record.resolved_at = closed_at
+    return len(records)
+
+
 def run_matching_for_unmatched(
     db: Session, *, batch_ids: Optional[Sequence[UUID]] = None
 ) -> Dict[str, int]:
-    """Load all currently-``unmatched`` invoices/payments (optionally scoped
-    to ``batch_ids``), run the matching engine, and persist the outcome.
+    """Load every not-yet-resolved invoice/payment (optionally scoped to
+    ``batch_ids``), run the matching engine, and persist the outcome.
+
+    The pool is ``unmatched`` *and* ``exception`` records, not just
+    ``unmatched`` ones: an exception is an unresolved record, and the whole
+    point of re-running matching after uploading more data is that the
+    counterpart a record was missing may have arrived since. Restricting the
+    pool to ``unmatched`` left every record that had ever been classified as
+    an exception permanently stuck, invisible to every later run.
 
     Every ``ScoredMatch`` becomes a ``Match`` row with ``match_status=
     suggested``, and both linked records flip to ``status=matched`` -- there
@@ -121,9 +179,16 @@ def run_matching_for_unmatched(
 
     Every ``ExceptionCandidate`` becomes an ``ExceptionRecord`` row with
     ``status=open``, and the one side it names flips to ``status=exception``.
+
+    Because reconsidered records may already carry an open ``ExceptionRecord``
+    from an earlier run, every record is passed through
+    ``_close_open_exceptions_for`` *before* its new ``Match``/
+    ``ExceptionRecord`` row is created -- otherwise each run would pile a
+    second open exception on top of the previous one for the same record.
     """
-    invoice_query = db.query(Invoice).filter(Invoice.status == "unmatched")
-    payment_query = db.query(Payment).filter(Payment.status == "unmatched")
+    reopenable = ["unmatched", "exception"]
+    invoice_query = db.query(Invoice).filter(Invoice.status.in_(reopenable))
+    payment_query = db.query(Payment).filter(Payment.status.in_(reopenable))
     if batch_ids:
         invoice_query = invoice_query.filter(Invoice.upload_batch_id.in_(batch_ids))
         payment_query = payment_query.filter(Payment.upload_batch_id.in_(batch_ids))
@@ -144,6 +209,10 @@ def run_matching_for_unmatched(
     for scored in result.matches:  # type: ScoredMatch
         invoice = invoices_by_id[scored.invoice_id]
         payment = payments_by_id[scored.payment_id]
+        # Both sides now have a newer outcome than whatever exception either
+        # of them was sitting on (including a `rejected_by_reviewer` row,
+        # which names both sides at once).
+        _close_open_exceptions_for(db, invoice_id=invoice.id, payment_id=payment.id)
         db.add(
             Match(
                 invoice_id=invoice.id,
@@ -164,6 +233,9 @@ def run_matching_for_unmatched(
         candidate_ids = _candidate_ids_json(candidate.candidates)
         if candidate.side == SIDE_INVOICE:
             invoice = invoices_by_id[candidate.record_id]
+            # This run's classification supersedes any exception the record
+            # was already carrying, even when the reason is unchanged.
+            _close_open_exceptions_for(db, invoice_id=invoice.id)
             invoice.status = "exception"
             db.add(
                 ExceptionRecord(
@@ -176,6 +248,7 @@ def run_matching_for_unmatched(
             )
         else:
             payment = payments_by_id[candidate.record_id]
+            _close_open_exceptions_for(db, payment_id=payment.id)
             payment.status = "exception"
             db.add(
                 ExceptionRecord(
@@ -390,6 +463,15 @@ def resolve_exception(
         raise InvalidResolutionError(
             f"payment {link_payment_id} is already linked to match {existing_for_payment.id}"
         )
+
+    # Linking resolves the reviewer's exception *and* the counterpart's own
+    # open exception. Both records were unresolved before this call, so each
+    # side typically carries its own one-sided row; closing only the row the
+    # reviewer clicked would strand the other one open forever -- and
+    # unresolvable, since resolving it would now fail the "already linked"
+    # pre-check above. The reviewer's own note is reapplied to ``record``
+    # below, overwriting the generic supersede note this sets on it.
+    _close_open_exceptions_for(db, invoice_id=invoice.id, payment_id=payment.id)
 
     match = Match(
         invoice_id=invoice.id,

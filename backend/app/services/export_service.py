@@ -114,9 +114,30 @@ def _zero() -> Decimal:
     return Decimal("0.00")
 
 
+def _match_totals(db: Session, match_status: str) -> Dict[str, Any]:
+    rows = (
+        db.query(Match, Invoice)
+        .join(Invoice, Match.invoice_id == Invoice.id)
+        .filter(Match.match_status == match_status)
+        .all()
+    )
+    return {
+        "count": len(rows),
+        "amount": sum((invoice.amount for _, invoice in rows), _zero()),
+    }
+
+
 def get_export_summary(db: Session) -> Dict[str, Any]:
-    """Totals matched/unmatched (count + $) and open+resolved exceptions
+    """Totals matched/in-review/unmatched (count + $) and *open* exceptions
     grouped by reason (count + $), as of right now.
+
+    ``matched`` counts accepted matches only; ``in_review`` counts matches the
+    engine has suggested but nobody has accepted or rejected yet. Both buckets
+    are needed because ``run_matching_for_unmatched`` flips both linked
+    records to ``status="matched"`` the moment a match is *suggested* -- so a
+    suggested-but-unreviewed record is in neither the accepted-match pool nor
+    the unmatched pool, and reporting only ``matched``/``unmatched`` would
+    make it vanish from the summary entirely.
 
     Matched ``$`` is the invoice-side amount (the two sides agree within
     the matching engine's amount tolerance by construction, so either side
@@ -128,15 +149,14 @@ def get_export_summary(db: Session) -> Dict[str, Any]:
     amount) -- a ``rejected_by_reviewer`` exception, the one kind linked to
     both sides, is counted once via its invoice amount to avoid
     double-counting the same reconciliation event.
+
+    ``exceptions_by_reason`` aggregates ``status="open"`` rows only: it is a
+    measure of outstanding review work, and counting resolved rows too made
+    it a monotonically growing tally that never went down as reviewers
+    cleared the queue.
     """
-    matched_rows = (
-        db.query(Match, Invoice)
-        .join(Invoice, Match.invoice_id == Invoice.id)
-        .filter(Match.match_status == "accepted")
-        .all()
-    )
-    matched_count = len(matched_rows)
-    matched_amount = sum((invoice.amount for _, invoice in matched_rows), _zero())
+    matched = _match_totals(db, "accepted")
+    in_review = _match_totals(db, "suggested")
 
     unmatched_invoices = db.query(Invoice).filter(Invoice.status == "unmatched").all()
     unmatched_invoice_count = len(unmatched_invoices)
@@ -147,7 +167,10 @@ def get_export_summary(db: Session) -> Dict[str, Any]:
     unmatched_payment_amount = sum((pay.amount for pay in unmatched_payments), _zero())
 
     exceptions_by_reason: Dict[str, Dict[str, Any]] = {}
-    for record in db.query(ExceptionRecord).all():
+    open_exceptions = (
+        db.query(ExceptionRecord).filter(ExceptionRecord.status == "open").all()
+    )
+    for record in open_exceptions:
         bucket = exceptions_by_reason.setdefault(
             record.reason, {"count": 0, "amount": _zero()}
         )
@@ -167,7 +190,8 @@ def get_export_summary(db: Session) -> Dict[str, Any]:
 
     return {
         "generated_at": _utcnow(),
-        "matched": {"count": matched_count, "amount": matched_amount},
+        "matched": matched,
+        "in_review": in_review,
         "unmatched": {
             "invoices": {
                 "count": unmatched_invoice_count,

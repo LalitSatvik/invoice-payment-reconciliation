@@ -228,9 +228,11 @@ def test_end_to_end_matching_review_and_export_flow(client, db_session):
     assert summary["unmatched"]["payments"]["count"] == 1
     assert Decimal(summary["unmatched"]["payments"]["amount"]) == Decimal("300.00")
 
+    # Only *open* exceptions count towards the KPI: invoice_c's no_candidate
+    # exception was dismissed above, so payment_d's is the only one left.
     reasons = summary["exceptions_by_reason"]
-    assert reasons["no_candidate"]["count"] == 2
-    assert Decimal(reasons["no_candidate"]["amount"]) == Decimal("1776.00")
+    assert reasons["no_candidate"]["count"] == 1
+    assert Decimal(reasons["no_candidate"]["amount"]) == Decimal("777.00")
     assert reasons["rejected_by_reviewer"]["count"] == 1
     assert Decimal(reasons["rejected_by_reviewer"]["amount"]) == Decimal("300.00")
 
@@ -519,3 +521,274 @@ def test_resolve_exception_allows_manual_link_for_previously_rejected_pairing(
     db_session.refresh(payment)
     assert invoice.status == "matched"
     assert payment.status == "matched"
+
+
+def test_exception_record_is_reconsidered_by_a_later_matching_run(client, db_session):
+    """An invoice that became an exception because its payment had not been
+    uploaded yet must be matched by the next run once that payment arrives.
+
+    Regression guard for two coupled defects:
+
+    1. ``run_matching_for_unmatched`` only ever loaded ``status="unmatched"``
+       records, so anything flipped to ``status="exception"`` dropped out of
+       the pool permanently -- no later run could ever reconsider it, which
+       is precisely the "upload more data, re-run matching" workflow.
+    2. Widening the pool without closing the record's previous exception
+       leaves the stale ``open`` row behind, so each run stacks another open
+       exception on the same record. Hence the exact-count assertion below:
+       one exception row for this invoice across the whole sequence, closed
+       rather than duplicated.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="rerun.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="RERUN-1",
+        vendor_name="Rerun Co",
+        invoice_date=date(2026, 8, 1),
+        amount=Decimal("820.00"),
+    )
+    db_session.add(invoice)
+    db_session.commit()
+
+    # Run 1: the invoice is alone, so it can only become an exception.
+    first_run = client.post("/api/v1/matching/run", json={})
+    assert first_run.status_code == 200
+    assert first_run.json() == {"matches_created": 0, "exceptions_created": 1}
+
+    db_session.refresh(invoice)
+    assert invoice.status == "exception"
+
+    # The matching payment is uploaded after the fact.
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 8, 1),
+        amount=Decimal("820.00"),
+        reference="RERUN-1 payment",
+        counterparty="Rerun Co",
+        raw_row={"amount": "820.00"},
+    )
+    db_session.add(payment)
+    db_session.commit()
+
+    # Run 2 must reconsider the exception invoice and match it.
+    second_run = client.post("/api/v1/matching/run", json={})
+    assert second_run.status_code == 200
+    assert second_run.json() == {"matches_created": 1, "exceptions_created": 0}
+
+    db_session.refresh(invoice)
+    db_session.refresh(payment)
+    assert invoice.status == "matched"
+    assert payment.status == "matched"
+
+    matches = client.get("/api/v1/matches", params={"status": "suggested"}).json()["items"]
+    assert _match_for(matches, invoice.id)["payment_id"] == str(payment.id)
+
+    # Exactly one exception row for this invoice, and it is closed out -- not
+    # a second open row piled on top of the first.
+    invoice_exceptions = (
+        db_session.query(ExceptionRecord)
+        .filter(ExceptionRecord.invoice_id == invoice.id)
+        .all()
+    )
+    assert len(invoice_exceptions) == 1
+    assert invoice_exceptions[0].status == "resolved"
+    assert invoice_exceptions[0].resolved_at is not None
+
+    open_exceptions = client.get(
+        "/api/v1/exceptions", params={"status": "open"}
+    ).json()
+    assert open_exceptions["total"] == 0
+
+
+def test_manual_link_closes_the_counterpart_side_exception_too(client, db_session):
+    """Linking two orphans must close *both* records' exceptions.
+
+    The seed produces two independent one-sided exception rows (an invoice
+    with no candidate and a payment with no candidate -- their amounts are
+    hundreds of dollars apart, so the amount gate rules the pairing out
+    automatically). A reviewer who links them from the invoice-side card
+    resolves that row explicitly; the payment-side row has to be closed as
+    well, or it stays open forever *and* becomes unresolvable, since
+    resolving it would now fail the "payment is already linked" pre-check.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="link.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="LINK-1",
+        vendor_name="Link Co",
+        invoice_date=date(2026, 9, 1),
+        amount=Decimal("910.00"),
+    )
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 9, 20),
+        amount=Decimal("410.00"),
+        reference="unlabelled transfer",
+        counterparty="Unknown",
+        raw_row={"amount": "410.00"},
+    )
+    db_session.add_all([invoice, payment])
+    db_session.commit()
+
+    run_response = client.post("/api/v1/matching/run", json={})
+    assert run_response.status_code == 200
+    assert run_response.json() == {"matches_created": 0, "exceptions_created": 2}
+
+    exceptions = client.get("/api/v1/exceptions", params={"status": "open"}).json()["items"]
+    invoice_exc = _exception_for(exceptions, invoice_id=invoice.id)
+    payment_exc = _exception_for(exceptions, payment_id=payment.id)
+    assert invoice_exc["id"] != payment_exc["id"]  # two genuinely separate rows
+
+    resolve_response = client.post(
+        f"/api/v1/exceptions/{invoice_exc['id']}/resolve",
+        json={
+            "link_invoice_id": str(invoice.id),
+            "link_payment_id": str(payment.id),
+            "resolution_note": "confirmed with the vendor",
+        },
+    )
+    assert resolve_response.status_code == 200
+
+    stored_invoice_exc = db_session.get(ExceptionRecord, uuid.UUID(invoice_exc["id"]))
+    stored_payment_exc = db_session.get(ExceptionRecord, uuid.UUID(payment_exc["id"]))
+    db_session.refresh(stored_invoice_exc)
+    db_session.refresh(stored_payment_exc)
+
+    # The targeted row keeps the reviewer's own note...
+    assert stored_invoice_exc.status == "resolved"
+    assert stored_invoice_exc.resolution_note == "confirmed with the vendor"
+    # ...and the counterpart is closed out too, rather than left dangling.
+    assert stored_payment_exc.status == "resolved"
+    assert stored_payment_exc.resolved_at is not None
+
+    assert client.get("/api/v1/exceptions", params={"status": "open"}).json()["total"] == 0
+
+
+def test_rejected_by_reviewer_exception_closes_when_the_pair_is_rematched(
+    client, db_session
+):
+    """``reject_match``'s audit exception is an open exception like any other,
+    so it must close once its records get a newer outcome -- otherwise a
+    rejected-then-rematched pair leaves a permanently open exception claiming
+    a rejection that no longer reflects reality.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="reclose.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="RECLOSE-1",
+        vendor_name="Reclose Co",
+        invoice_date=date(2026, 10, 1),
+        amount=Decimal("530.00"),
+    )
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 10, 1),
+        amount=Decimal("530.00"),
+        reference="RECLOSE-1 payment",
+        counterparty="Reclose Co",
+        raw_row={"amount": "530.00"},
+    )
+    db_session.add_all([invoice, payment])
+    db_session.commit()
+
+    client.post("/api/v1/matching/run", json={})
+    matches = client.get("/api/v1/matches", params={"status": "suggested"}).json()["items"]
+    match = _match_for(matches, invoice.id)
+    assert client.post(f"/api/v1/matches/{match['id']}/reject").status_code == 200
+
+    rejection = (
+        db_session.query(ExceptionRecord)
+        .filter(ExceptionRecord.reason == "rejected_by_reviewer")
+        .one()
+    )
+    assert rejection.status == "open"
+
+    # The deterministic engine re-proposes the same pairing on the next run.
+    assert client.post("/api/v1/matching/run", json={}).status_code == 200
+
+    db_session.refresh(rejection)
+    assert rejection.status == "resolved"
+    assert rejection.resolved_at is not None
+
+
+def test_export_summary_separates_suggested_matches_from_accepted_ones(
+    client, db_session
+):
+    """A suggested-but-unreviewed match belongs in its own ``in_review``
+    bucket. Both its records already left the ``unmatched`` pool, so before
+    ``in_review`` existed they were counted nowhere at all. Also asserts a
+    resolved exception drops out of ``exceptions_by_reason``.
+    """
+    batch = UploadBatch(kind="invoice_csv", original_filename="summary.csv", status="completed")
+    db_session.add(batch)
+    db_session.flush()
+
+    invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="SUM-1",
+        vendor_name="Summary Co",
+        invoice_date=date(2026, 11, 1),
+        amount=Decimal("250.00"),
+    )
+    payment = Payment(
+        upload_batch_id=batch.id,
+        payment_date=date(2026, 11, 1),
+        amount=Decimal("250.00"),
+        reference="SUM-1 payment",
+        counterparty="Summary Co",
+        raw_row={"amount": "250.00"},
+    )
+    orphan_invoice = Invoice(
+        upload_batch_id=batch.id,
+        invoice_number="SUM-ORPHAN",
+        vendor_name="Nobody Ltd",
+        invoice_date=date(2026, 11, 5),
+        amount=Decimal("880.00"),
+    )
+    db_session.add_all([invoice, payment, orphan_invoice])
+    db_session.commit()
+
+    run_response = client.post("/api/v1/matching/run", json={})
+    assert run_response.json() == {"matches_created": 1, "exceptions_created": 1}
+
+    summary = client.get("/api/v1/export/summary").json()
+    assert summary["in_review"]["count"] == 1
+    assert Decimal(summary["in_review"]["amount"]) == Decimal("250.00")
+    assert summary["matched"]["count"] == 0
+    assert Decimal(summary["matched"]["amount"]) == Decimal("0.00")
+    # Neither side is in the unmatched pool either -- that is exactly why the
+    # in_review bucket has to exist.
+    assert summary["unmatched"]["invoices"]["count"] == 0
+    assert summary["unmatched"]["payments"]["count"] == 0
+    assert summary["exceptions_by_reason"]["no_candidate"]["count"] == 1
+
+    matches = client.get("/api/v1/matches", params={"status": "suggested"}).json()["items"]
+    match = _match_for(matches, invoice.id)
+    assert client.post(f"/api/v1/matches/{match['id']}/accept").status_code == 200
+
+    exceptions = client.get("/api/v1/exceptions", params={"status": "open"}).json()["items"]
+    orphan_exc = _exception_for(exceptions, invoice_id=orphan_invoice.id)
+    assert (
+        client.post(
+            f"/api/v1/exceptions/{orphan_exc['id']}/resolve",
+            json={"dismiss": True, "resolution_note": "written off"},
+        ).status_code
+        == 200
+    )
+
+    after = client.get("/api/v1/export/summary").json()
+    assert after["matched"]["count"] == 1
+    assert Decimal(after["matched"]["amount"]) == Decimal("250.00")
+    assert after["in_review"]["count"] == 0
+    assert Decimal(after["in_review"]["amount"]) == Decimal("0.00")
+    # The dismissed exception is resolved work, not outstanding work.
+    assert "no_candidate" not in after["exceptions_by_reason"]
