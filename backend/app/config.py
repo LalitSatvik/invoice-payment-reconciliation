@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,10 +15,13 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     frontend_port: int = 3000
     enable_ocr_fallback: bool = False
+    # Set in deployed environments to the real frontend URL (e.g. a Vercel
+    # deployment). Falls back to the local dev server when unset.
+    frontend_url: Optional[str] = None
 
     @property
     def frontend_origin(self) -> str:
-        return f"http://localhost:{self.frontend_port}"
+        return self.frontend_url or f"http://localhost:{self.frontend_port}"
 
 
 settings = Settings()
