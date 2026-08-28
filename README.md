@@ -157,3 +157,95 @@ migrated automatically on container start.
 docker compose down          # stop containers, keep the Postgres volume
 docker compose down -v       # stop containers and delete the Postgres volume
 ```
+
+## Local development without Docker (the verified path)
+
+This is the setup the whole project was actually built and tested on, so
+unlike the Docker path above it is known-good rather than statically
+reviewed: **216 passing backend tests** and a clean `npm run build` /
+`npm run lint` were run this way throughout. If you'd rather not wait on
+Docker, use this.
+
+### Prerequisites
+
+- **Python 3.8.** Development used a conda environment, but nothing here
+  depends on conda -- any Python 3.8 interpreter with the two requirements
+  files installed works (`venv`, `pyenv`, system Python, etc.). CI runs the
+  same suite on 3.9, so anything in that range is fine.
+- **Postgres 16**, running locally on port `5432`.
+- **Node.js** for the frontend. Development used Node 23 (CI pins 23 too);
+  Next.js 16 requires Node 20.9+.
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+```
+
+Create the database and its role, and point the app at it. The test suite
+reads `TEST_DATABASE_URL` (see `backend/tests/conftest.py`) while the app
+reads `DATABASE_URL`; the simplest setup -- and what CI does -- is to point
+both at the *same* database, since the test fixtures wrap every test in a
+transaction that is rolled back at teardown and so never leave rows behind:
+
+```bash
+createuser --createdb reconcile_app          # password: reconcile_dev
+createdb -O reconcile_app reconcile
+
+export DATABASE_URL=postgresql://reconcile_app:reconcile_dev@localhost:5432/reconcile
+export TEST_DATABASE_URL=$DATABASE_URL
+```
+
+If you'd rather keep the two apart (recommended if you plan to keep real
+data in the app database), create a second `reconcile_test` database, run
+`alembic upgrade head` against each in turn, and set `TEST_DATABASE_URL` to
+the test one instead.
+
+Then migrate and run:
+
+```bash
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+The API is now on `http://localhost:8000` (`GET /health` returns
+`{"status": "ok"}`). Run the test suite from the same `backend/` directory:
+
+```bash
+pytest -q
+```
+
+The migrations create the `pgcrypto` extension the schema needs
+(`gen_random_uuid()`), so no manual `CREATE EXTENSION` step is required --
+but the role does need permission to create it, hence `--createdb` above.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+```
+
+The app is then on `http://localhost:3000`. `NEXT_PUBLIC_API_URL` is
+inlined at build time, so set it for `npm run build` too if you build a
+production bundle. To check the frontend the way CI does:
+
+```bash
+npm run build
+npm run lint
+```
+
+### Generating the synthetic corpus locally
+
+```bash
+cd backend
+python -m app.synthetic.scenarios
+```
+
+Rewrites `backend/data/synthetic/`. Those files are committed, and
+`backend/tests/ingestion/test_synthetic_generator.py` asserts the committed
+copies are byte-identical to a fresh generation at the default seed -- so if
+you change `app/synthetic/scenarios.py`, re-run this and commit the result
+or that test will fail.

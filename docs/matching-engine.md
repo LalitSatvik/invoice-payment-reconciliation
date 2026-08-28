@@ -128,10 +128,13 @@ Everything that doesn't commit becomes an exception, classified by
   would rather ask a human than guess between two equally-good options.
 - **`candidate_claimed_elsewhere`** — this record has one clear,
   uncontested preference, but that preference belongs to someone else by a
-  decisive margin. Every exception in the last two categories carries the
-  *full* ranked candidate list (not just the leader), because the
-  second-best option is often the right one and a reviewer resolving it by
-  hand needs to see it.
+  decisive margin.
+
+Every exception *except* `no_candidate` carries a ranked candidate list (the
+full list, not just the leader) — including `below_threshold`, which is why
+the exceptions queue offers a candidate picker for all three of them rather
+than dismiss-only. The second-best option is often the right one, and a
+reviewer resolving an exception by hand needs to see it.
 
 ## Worked examples
 
