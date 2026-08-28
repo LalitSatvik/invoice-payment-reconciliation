@@ -62,7 +62,7 @@ function shortId(id: string): string {
 }
 
 /**
- * One exception's card: reason, own-side reference, and (for the two
+ * One exception's card: reason, own-side reference, and (for the
  * candidate-bearing reasons) a candidate picker to resolve by linking, plus
  * a dismiss action available on any exception.
  *
@@ -87,9 +87,15 @@ function ExceptionCard({
   const [error, setError] = useState<string | null>(null);
 
   const ownSideIsInvoice = exception.invoice_id !== null;
+  // `below_threshold` belongs here alongside the two ambiguity reasons: the
+  // engine ranks and stores a full candidate list for it too, and it is the
+  // most common real-world near-miss (right amount and date, reference text
+  // too weak to clear the threshold). Leaving it out made those dismiss-only,
+  // even though `POST /exceptions/{id}/resolve` accepts linking any pair.
   const hasCandidates =
     (exception.reason === "ambiguous_multiple_candidates" ||
-      exception.reason === "candidate_claimed_elsewhere") &&
+      exception.reason === "candidate_claimed_elsewhere" ||
+      exception.reason === "below_threshold") &&
     exception.candidate_ids !== null &&
     exception.candidate_ids.length > 0;
 

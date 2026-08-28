@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ApiError, getExportSummary } from "@/lib/api-client";
 import type { ExportSummaryResponse } from "@/lib/types";
 import { formatCurrency } from "@/lib/format";
+import { isEmptySummary } from "@/lib/summary";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { KpiStat } from "@/components/ui/KpiStat";
@@ -17,19 +18,6 @@ const navItems = [
   { href: "/exceptions", label: "Exceptions", icon: <ExceptionsIcon /> },
   { href: "/export", label: "Export", icon: <ExportIcon /> },
 ];
-
-/** True once a summary has loaded but there is nothing in it yet -- no
- * matches, no unmatched invoices, no unmatched payments. That only happens
- * before anything has been uploaded, so it gets its own message rather than
- * three zero-value KPI cards that could otherwise be mistaken for a stuck
- * loading state or a quiet error. */
-function isEmptySummary(summary: ExportSummaryResponse): boolean {
-  return (
-    summary.matched.count === 0 &&
-    summary.unmatched.invoices.count === 0 &&
-    summary.unmatched.payments.count === 0
-  );
-}
 
 export default function Home() {
   const [summary, setSummary] = useState<ExportSummaryResponse | null>(null);
@@ -78,9 +66,17 @@ export default function Home() {
         )}
 
         {summary && !isEmptySummary(summary) && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
               <KpiStat label="Matched" value={summary.matched.count} delta={formatCurrency(summary.matched.amount)} />
+            </Card>
+            <Card>
+              <KpiStat
+                label="In review"
+                value={summary.in_review.count}
+                delta={formatCurrency(summary.in_review.amount)}
+                deltaTone="neutral"
+              />
             </Card>
             <Card>
               <KpiStat

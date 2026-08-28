@@ -87,7 +87,12 @@ export interface ExceptionReasonTotals {
 
 export interface ExportSummaryResponse {
   generated_at: string;
+  /** Accepted matches only. */
   matched: MatchedTotals;
+  /** Matches the engine suggested that nobody has accepted or rejected yet.
+   * Their records have already left the unmatched pool, so this bucket is
+   * the only place they are counted. */
+  in_review: MatchedTotals;
   unmatched: UnmatchedTotals;
   exceptions_by_reason: Record<string, ExceptionReasonTotals>;
 }

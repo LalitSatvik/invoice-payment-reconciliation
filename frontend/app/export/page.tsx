@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ApiError, getExportSummary, getReconciliationCsvUrl } from "@/lib/api-client";
 import type { ExportSummaryResponse } from "@/lib/types";
 import { formatCurrency } from "@/lib/format";
+import { isEmptySummary } from "@/lib/summary";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { KpiStat } from "@/components/ui/KpiStat";
@@ -40,17 +41,6 @@ function reasonLabel(reason: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-/** True once a summary has loaded but there is nothing in it yet -- see the
- * matching helper on the dashboard page (`app/page.tsx`) for why this gets
- * its own message rather than three zero-value KPI cards. */
-function isEmptySummary(summary: ExportSummaryResponse): boolean {
-  return (
-    summary.matched.count === 0 &&
-    summary.unmatched.invoices.count === 0 &&
-    summary.unmatched.payments.count === 0
-  );
 }
 
 function formatTimestamp(value: string): string {
@@ -123,13 +113,21 @@ export default function ExportPage() {
                 </p>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card>
                   <KpiStat
                     label="Matched"
                     value={summary.matched.count}
                     delta={formatCurrency(summary.matched.amount)}
                     deltaTone="positive"
+                  />
+                </Card>
+                <Card>
+                  <KpiStat
+                    label="In review"
+                    value={summary.in_review.count}
+                    delta={formatCurrency(summary.in_review.amount)}
+                    deltaTone="neutral"
                   />
                 </Card>
                 <Card>

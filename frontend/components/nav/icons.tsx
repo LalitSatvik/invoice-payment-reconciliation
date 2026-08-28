@@ -32,6 +32,25 @@ export function UploadIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function InvoiceIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 3h9l3 3v15l-3-2-3 2-3-2-3 2V3z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </IconBase>
+  );
+}
+
+export function BankIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M3 9l9-5 9 5" />
+      <path d="M5 9v9M10 9v9M14 9v9M19 9v9" />
+      <path d="M3 20h18" />
+    </IconBase>
+  );
+}
+
 export function ReviewIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <IconBase {...props}>

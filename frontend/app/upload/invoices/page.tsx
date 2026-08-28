@@ -9,10 +9,22 @@ import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PillNav } from "@/components/nav/PillNav";
-import { ExceptionsIcon, ExportIcon, ReviewIcon, UploadIcon } from "@/components/nav/icons";
+import {
+  BankIcon,
+  ExceptionsIcon,
+  ExportIcon,
+  InvoiceIcon,
+  ReviewIcon,
+  UploadIcon,
+} from "@/components/nav/icons";
 
+// The two upload routes are listed here (and on the bank-statement page) so
+// the nav can mark the page you are actually on. Without them, every upload
+// page had to claim `activeHref="/"` and highlighted "Home" instead.
 const navItems = [
   { href: "/", label: "Home", icon: <UploadIcon /> },
+  { href: "/upload/invoices", label: "Upload invoices", icon: <InvoiceIcon /> },
+  { href: "/upload/bank-statement", label: "Upload bank statement", icon: <BankIcon /> },
   { href: "/review", label: "Review", icon: <ReviewIcon /> },
   { href: "/exceptions", label: "Exceptions", icon: <ExceptionsIcon /> },
   { href: "/export", label: "Export", icon: <ExportIcon /> },
@@ -91,7 +103,7 @@ export default function InvoiceUploadPage() {
       <header className="flex flex-col gap-4">
         <span className="text-xs font-medium uppercase tracking-wide text-text-muted">Upload</span>
         <h1 className="text-3xl font-extrabold tracking-tight">Invoices</h1>
-        <PillNav items={navItems} activeHref="/" />
+        <PillNav items={navItems} activeHref="/upload/invoices" />
       </header>
 
       <Card className="flex flex-col gap-4">
