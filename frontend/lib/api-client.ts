@@ -4,6 +4,7 @@
  * from `NEXT_PUBLIC_API_URL` so it can point at a different backend in
  * different environments without a rebuild-time config file.
  */
+import { clearStoredAuthHeader, getStoredAuthHeader } from "@/lib/backend-auth";
 import type {
   ExceptionListResponse,
   ExceptionOut,
@@ -51,14 +52,25 @@ function extractDetail(body: unknown): string | undefined {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  const authHeader = getStoredAuthHeader();
+  if (authHeader && !headers.has("Authorization")) {
+    headers.set("Authorization", authHeader);
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, init);
+    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   } catch {
     throw new ApiError(0, `Could not reach the backend at ${API_BASE_URL}. Is it running?`);
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      // Stored credentials are wrong or have been rotated -- drop them so
+      // AuthGate re-prompts on the next check instead of looping forever.
+      clearStoredAuthHeader();
+    }
     let detail: string | undefined;
     try {
       detail = extractDetail(await response.json());
