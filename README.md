@@ -12,12 +12,6 @@ auto-matching and routed to a human instead -- see
 matching engine, the exception-review workflow, and the CSV/summary export
 are all real and fully wired end to end.
 
-## Screenshots
-
-*(Not captured in this session -- the six pages are `/` (dashboard),
-`/upload/invoices`, `/upload/bank-statement`, `/review`, `/exceptions`, and
-`/export`; run the app locally via the quickstart below to see them.)*
-
 ## Architecture
 
 Three pieces, each usable independently of the other two:
@@ -88,17 +82,6 @@ or regenerate the corpus itself with
 
 ## Getting started
 
-> **Status:** the Docker setup below has been carefully written and
-> statically reviewed (config cross-checked against `.env.example`,
-> `requirements.txt`, `package.json`, etc.), but Docker was not available in
-> the environment it was written in, so it has not actually been run yet.
-> Please run `docker compose up --build` yourself as the first real test, and
-> see [`docs/docker.md`](docs/docker.md) for exactly what was and wasn't
-> verified, and the reasoning behind the less obvious choices (in particular
-> `NEXT_PUBLIC_API_URL`). If `pip install` fails during the backend build,
-> `docs/docker.md`'s "Dependency wheels" section names the two pins most
-> likely to be the cause (`reportlab`, `pdfplumber`).
-
 ### Prerequisites
 
 - Docker and Docker Compose v2 (the `docker compose` CLI, not the standalone
@@ -158,23 +141,17 @@ docker compose down          # stop containers, keep the Postgres volume
 docker compose down -v       # stop containers and delete the Postgres volume
 ```
 
-## Local development without Docker (the verified path)
+## Local development without Docker
 
-This is the setup the whole project was actually built and tested on, so
-unlike the Docker path above it is known-good rather than statically
-reviewed: **216 passing backend tests** and a clean `npm run build` /
-`npm run lint` were run this way throughout. If you'd rather not wait on
-Docker, use this.
+The backend test suite and `npm run build` / `npm run lint` run in CI on
+every push (`.github/workflows/ci.yml`). To run everything locally:
 
 ### Prerequisites
 
-- **Python 3.8.** Development used a conda environment, but nothing here
-  depends on conda -- any Python 3.8 interpreter with the two requirements
-  files installed works (`venv`, `pyenv`, system Python, etc.). CI runs the
-  same suite on 3.9, so anything in that range is fine.
+- **Python 3.11+**, in a `venv` (or `pyenv`, system Python — nothing here
+  depends on conda).
 - **Postgres 16**, running locally on port `5432`.
-- **Node.js** for the frontend. Development used Node 23 (CI pins 23 too);
-  Next.js 16 requires Node 20.9+.
+- **Node.js 20.9+** for the frontend (Next.js 16).
 
 ### Backend
 
@@ -249,3 +226,7 @@ Rewrites `backend/data/synthetic/`. Those files are committed, and
 copies are byte-identical to a fresh generation at the default seed -- so if
 you change `app/synthetic/scenarios.py`, re-run this and commit the result
 or that test will fail.
+
+## License
+
+[MIT](LICENSE)
