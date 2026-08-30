@@ -34,19 +34,6 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          # The project has been developed against Python 3.8.20 (backend/
-          # requires it via a local conda env). Python 3.8 went EOL in
-          # October 2024, and GitHub's `ubuntu-latest` label has pointed at
-          # Ubuntu 24.04 ("noble") since January 2025; actions/setup-python
-          # does not have a Python 3.8 build for 24.04 (see
-          # actions/setup-python#879), so pinning "3.8" here would fail on
-          # this runner. 3.9 is the closest version with 24.04-compatible
-          # builds (it kept receiving patch releases into late 2024/2025,
-          # after Ubuntu 24.04 became generally available, so those later
-          # 3.9.x builds target noble). This has not been verified against a
-          # live GitHub Actions run yet -- if 3.9 also turns out to be
-          # unavailable, bump this to 3.10/3.11 or pin `runs-on` to
-          # `ubuntu-22.04` instead, which does carry a Python 3.8 build.
           python-version: "3.11"
 
       - name: Install backend dependencies

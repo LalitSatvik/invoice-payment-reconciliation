@@ -35,7 +35,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # No `curl`/`wget` in python:3.8-slim by default, so a stdlib-only
+      # No `curl`/`wget` in python:*-slim by default, so a stdlib-only
       # Python one-liner stands in for one. Gives `docker compose up --wait`
       # and the frontend's `condition: service_healthy` dependency below a
       # real readiness signal -- both migrations (app DB + test DB, see

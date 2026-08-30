@@ -7,4 +7,3 @@ out/
 npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
-AGENTS.md

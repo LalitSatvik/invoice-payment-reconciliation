@@ -1,8 +1,5 @@
-# Base image pinned to 3.8.20 (via the `python:3.8-slim` tag) to match the
-# `lalitenv` conda environment this project has been developed and tested
-# against. A different minor version risks subtle stdlib/typing behavior
-# differences, so this is deliberately not "3-slim" or "3.12-slim".
-FROM python:3.8-slim
+# Pinned to a specific minor version so builds are reproducible.
+FROM python:3.11-slim
 
 WORKDIR /app
 
